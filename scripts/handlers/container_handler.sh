@@ -138,8 +138,8 @@ create_container() {
         "python")
             base_image="python:3.9-slim"
             ;;
-        "nodejs")
-            base_image="node:16-slim"
+        "nodejs"|"react"|"react-typescript"|"nextjs"|"typescript"|"azure-react")
+            base_image="node:20-slim"
             ;;
         "java")
             base_image="openjdk:17-slim"
@@ -186,7 +186,7 @@ setup_container_env() {
     
     echo -e "${YELLOW}🔧 Setting up container environment...${NC}"
     
-    # Install basic tools
+    # Install basic tools - git and curl are useful in all environments
     docker exec "$container_name" bash -c "apt-get update && apt-get install -y git curl" || {
         echo -e "${RED}❌ Failed to install basic tools${NC}"
         return 1
@@ -195,23 +195,27 @@ setup_container_env() {
     # Setup based on project type
     case "$project_type" in
         "python")
+            # Python-specific setup - pip is already installed in python images
             docker exec "$container_name" bash -c "
-                apt-get install -y python3-pip && \
                 cd /app && \
                 if [ -f requirements.txt ]; then
                     pip install -r requirements.txt
                 fi
             "
             ;;
-        "nodejs")
+        "nodejs"|"react"|"react-typescript"|"nextjs"|"typescript"|"azure-react")
+            # Node.js-specific setup - node and npm are already installed in node images
             docker exec "$container_name" bash -c "
                 cd /app && \
-                if [ -f package.json ]; then
+                if [ -d 'frontend' ] && [ -f 'frontend/package.json' ]; then
+                    cd frontend && npm install
+                elif [ -f 'package.json' ]; then
                     npm install
                 fi
             "
             ;;
         "java")
+            # Java-specific setup - Java is already installed in openjdk images
             docker exec "$container_name" bash -c "
                 apt-get install -y maven && \
                 cd /app && \
@@ -221,8 +225,9 @@ setup_container_env() {
             "
             ;;
         "cpp")
+            # C++ setup - gcc and basic build tools are already installed in gcc images
             docker exec "$container_name" bash -c "
-                apt-get install -y build-essential cmake && \
+                apt-get install -y cmake && \
                 cd /app && \
                 if [ -f CMakeLists.txt ]; then
                     mkdir -p build && cd build && \
@@ -233,6 +238,7 @@ setup_container_env() {
             "
             ;;
         "rust")
+            # Rust setup - rust is already installed in rust images
             docker exec "$container_name" bash -c "
                 cd /app && \
                 if [ -f Cargo.toml ]; then
@@ -241,10 +247,26 @@ setup_container_env() {
             "
             ;;
         "golang")
+            # Go setup - go is already installed in golang images
             docker exec "$container_name" bash -c "
                 cd /app && \
                 if [ -f go.mod ]; then
                     go build
+                fi
+            "
+            ;;
+        *)
+            # For unknown project types, try to detect common patterns
+            docker exec "$container_name" bash -c "
+                # Check for package.json (Node.js)
+                if [ -f '/app/package.json' ]; then
+                    apt-get update && \
+                    apt-get install -y nodejs npm && \
+                    cd /app && npm install
+                # Check for requirements.txt (Python)
+                elif [ -f '/app/requirements.txt' ]; then
+                    apt-get install -y python3-pip && \
+                    cd /app && pip install -r requirements.txt
                 fi
             "
             ;;

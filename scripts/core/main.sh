@@ -11,17 +11,17 @@ BASE_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
 # Import order is important - dependencies must be loaded before dependents
 # 1. Core utilities first
-source "$SCRIPT_DIR/../utils/env_checker.sh"      # Environment checks
-source "$SCRIPT_DIR/../utils/dependency_manager.sh" # Dependency management
-source "$SCRIPT_DIR/../docker_helper.sh"          # Docker management
+source "$BASE_DIR/scripts/utils/env_checker.sh"      # Environment checks
+source "$BASE_DIR/scripts/utils/dependency_manager.sh" # Dependency management
+source "$BASE_DIR/scripts/docker_helper.sh"          # Docker management
 
 # 2. Docker-specific utilities
-source "$SCRIPT_DIR/../docker/utils/permissions_handler.sh"  # Docker permissions
-source "$SCRIPT_DIR/../docker/utils/container_manager.sh"    # Container operations
+source "$BASE_DIR/scripts/docker/utils/permissions_handler.sh"  # Docker permissions
+source "$BASE_DIR/scripts/docker/utils/container_manager.sh"    # Container operations
 
 # 3. High-level handlers that depend on the above
-source "$SCRIPT_DIR/../handlers/git_handler.sh"        # Git operations
-source "$SCRIPT_DIR/../handlers/container_handler.sh"  # Container orchestration
+source "$BASE_DIR/scripts/handlers/git_handler.sh"        # Git operations
+source "$BASE_DIR/scripts/handlers/container_handler.sh"  # Container orchestration
 
 # Colors for output
 RED='\033[0;31m'
@@ -84,14 +84,8 @@ handle_repository() {
     fi
     
     # Create container with appropriate base image
-    if ! create_container "$repo_type" "$container_name"; then
+    if ! create_container "$temp_dir" "$container_name"; then
         cleanup_on_error "Failed to create container" "$temp_dir" "$container_name"
-        return 1
-    fi
-    
-    # Copy files to container
-    if ! copy_to_container "$temp_dir" "$container_name" "/app"; then
-        cleanup_on_error "Failed to copy files to container" "$temp_dir" "$container_name"
         return 1
     fi
     
@@ -135,25 +129,6 @@ handle_menu() {
                 read -p "Enter GitHub repository URL: " repo_url
                 read -p "Enter container name (default: ${repo_url##*/}): " container_name
                 container_name=${container_name:-${repo_url##*/}}
-                
-                # Check if container exists before proceeding
-                if container_exists "$container_name"; then
-                    result=$(handle_container_conflict "$container_name")
-                    exit_code=$?
-                    
-                    if [ $exit_code -ne 0 ]; then
-                        echo -e "${RED}Operation cancelled${NC}"
-                        echo
-                        read -p "Press Enter to continue..."
-                        continue
-                    fi
-                    
-                    # If a new name was generated, use it
-                    if [ -n "$result" ]; then
-                        container_name="$result"
-                        echo -e "${GREEN}Using container name: ${container_name}${NC}"
-                    fi
-                fi
                 
                 # Handle repository
                 handle_repository "$repo_url" "$container_name"
@@ -212,6 +187,104 @@ handle_menu() {
         echo
         read -p "Press Enter to continue..."
     done
+}
+
+# Function to validate container name
+validate_container_name() {
+    local container_name="$1"
+    # Remove any special characters and spaces, keep only alphanumeric, dashes, and dots
+    container_name=$(echo "$container_name" | sed 's/[^a-zA-Z0-9\._-]//g')
+    echo "$container_name"
+}
+
+# Function to create container
+create_container() {
+    local repo_path="$1"
+    local container_name="$2"
+    
+    # Validate container name
+    container_name=$(validate_container_name "$container_name")
+    
+    # Check for container conflict and handle it
+    if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
+        echo -e "\n=== Container Conflict Resolution ==="
+        echo -e "⚠️  Container $container_name already exists\n"
+        
+        # Show all containers in a single output
+        echo "Current Docker Containers:"
+        echo "------------------------"
+        docker ps -a --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.ID}}" | cat
+        
+        echo -e "\nAvailable Options:"
+        echo "----------------"
+        echo "1. Remove existing container $container_name"
+        echo "2. Rename existing container"
+        echo "3. Auto-generate new unique name"
+        echo "4. Cancel operation"
+        
+        read -p "What would you like to do? " action
+        
+        case "$action" in
+            1)
+                echo -e "\n🗑️  Removing container $container_name..."
+                docker rm -f "$container_name" >/dev/null 2>&1
+                if [ $? -eq 0 ]; then
+                    echo "✅ Container removed successfully"
+                else
+                    echo "❌ Failed to remove container"
+                    return 1
+                fi
+                ;;
+            2)
+                read -p "Enter new name for existing container: " new_name
+                new_name=$(validate_container_name "$new_name")
+                docker rename "$container_name" "$new_name" >/dev/null 2>&1
+                if [ $? -eq 0 ]; then
+                    echo "✅ Container renamed successfully"
+                    container_name="$new_name"
+                else
+                    echo "❌ Failed to rename container"
+                    return 1
+                fi
+                ;;
+            3)
+                local timestamp=$(date +%Y%m%d_%H%M%S)
+                container_name="${container_name}_${timestamp}"
+                echo "✅ New container name: $container_name"
+                ;;
+            4)
+                echo "Operation cancelled"
+                return 1
+                ;;
+            *)
+                echo "Invalid option. Please try again."
+                return 1
+                ;;
+        esac
+    fi
+    
+    echo "🐳 Creating container $container_name..."
+    docker run -d --name "$container_name" ubuntu:latest tail -f /dev/null
+    
+    if [ $? -eq 0 ]; then
+        echo "✅ Container created successfully"
+        
+        # Copy repository contents to container
+        echo "📂 Copying repository contents to container..."
+        docker cp "$repo_path/." "$container_name:/app/"
+        
+        if [ $? -eq 0 ]; then
+            echo "✅ Repository contents copied successfully"
+            return 0
+        else
+            echo "❌ Failed to copy repository contents"
+            docker rm -f "$container_name" >/dev/null 2>&1
+            return 1
+        fi
+    else
+        echo "❌ Failed to create container"
+        return 1
+    fi
 }
 
 # Main function
