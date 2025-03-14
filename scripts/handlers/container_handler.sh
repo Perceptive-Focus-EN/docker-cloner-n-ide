@@ -135,13 +135,13 @@ create_container() {
     # Select base image based on project type
     local base_image
     case "$project_type" in
-        "python")
+        "python"|"django"|"flask"|"fastapi"|"data-science"|"ml-ai")
             base_image="python:3.9-slim"
             ;;
         "nodejs"|"react"|"react-typescript"|"nextjs"|"typescript"|"azure-react")
             base_image="node:20-slim"
             ;;
-        "java")
+        "java"|"spring-boot")
             base_image="openjdk:17-slim"
             ;;
         "cpp")
@@ -150,7 +150,7 @@ create_container() {
         "rust")
             base_image="rust:slim"
             ;;
-        "golang")
+        "golang"|"go")
             base_image="golang:1.17-alpine"
             ;;
         *)
@@ -194,7 +194,7 @@ setup_container_env() {
     
     # Setup based on project type
     case "$project_type" in
-        "python")
+        "python"|"django"|"flask"|"fastapi"|"data-science"|"ml-ai")
             # Python-specific setup - pip is already installed in python images
             docker exec "$container_name" bash -c "
                 cd /app && \
@@ -216,19 +216,19 @@ setup_container_env() {
                 fi && \
                 
                 # Check for specific Python project types and install additional tools
-                if grep -q 'django' requirements.txt 2>/dev/null || grep -q 'django' pyproject.toml 2>/dev/null || [ -f 'manage.py' ]; then
+                if [ '$project_type' = 'django' ] || grep -q 'django' requirements.txt 2>/dev/null || grep -q 'django' pyproject.toml 2>/dev/null || [ -f 'manage.py' ]; then
                     echo '🌐 Django project detected, installing development tools...' && \
                     pip install django-debug-toolbar
-                elif grep -q 'flask' requirements.txt 2>/dev/null || grep -q 'flask' pyproject.toml 2>/dev/null; then
+                elif [ '$project_type' = 'flask' ] || grep -q 'flask' requirements.txt 2>/dev/null || grep -q 'flask' pyproject.toml 2>/dev/null; then
                     echo '🌐 Flask project detected, installing development tools...' && \
                     pip install flask-debugtoolbar
-                elif grep -q 'fastapi' requirements.txt 2>/dev/null || grep -q 'fastapi' pyproject.toml 2>/dev/null; then
+                elif [ '$project_type' = 'fastapi' ] || grep -q 'fastapi' requirements.txt 2>/dev/null || grep -q 'fastapi' pyproject.toml 2>/dev/null; then
                     echo '🌐 FastAPI project detected, installing development tools...' && \
                     pip install fastapi-debug-toolbar
-                elif grep -q 'pandas\|numpy\|matplotlib' requirements.txt 2>/dev/null || grep -q 'pandas\|numpy\|matplotlib' pyproject.toml 2>/dev/null; then
+                elif [ '$project_type' = 'data-science' ] || grep -q 'pandas\|numpy\|matplotlib' requirements.txt 2>/dev/null || grep -q 'pandas\|numpy\|matplotlib' pyproject.toml 2>/dev/null; then
                     echo '📊 Data Science project detected, installing additional tools...' && \
                     pip install jupyterlab
-                elif grep -q 'tensorflow\|torch\|sklearn' requirements.txt 2>/dev/null || grep -q 'tensorflow\|torch\|sklearn' pyproject.toml 2>/dev/null; then
+                elif [ '$project_type' = 'ml-ai' ] || grep -q 'tensorflow\|torch\|sklearn' requirements.txt 2>/dev/null || grep -q 'tensorflow\|torch\|sklearn' pyproject.toml 2>/dev/null; then
                     echo '🧠 ML/AI project detected, installing additional tools...' && \
                     pip install jupyterlab tensorboard
                 fi && \
@@ -255,7 +255,7 @@ setup_container_env() {
                 fi
             "
             ;;
-        "java")
+        "java"|"spring-boot")
             # Java-specific setup - Java is already installed in openjdk images
             docker exec "$container_name" bash -c "
                 apt-get install -y maven && \
@@ -287,7 +287,7 @@ setup_container_env() {
                 fi
             "
             ;;
-        "golang")
+        "golang"|"go")
             # Go setup - go is already installed in golang images
             docker exec "$container_name" bash -c "
                 cd /app && \

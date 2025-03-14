@@ -67,31 +67,15 @@ handle_repository() {
     fi
     echo -e "${GREEN}✅ Repository cloned successfully${NC}"
     
-    # Detect repository type and verify dependencies
-    local repo_type
-    repo_type=$(detect_project_type "$temp_dir")
-    if [ "$repo_type" = "unknown" ]; then
-        cleanup_on_error "Could not detect project type" "$temp_dir" "$container_name"
-        return 1
-    fi
-    
-    echo -e "${GREEN}✅ Detected project type: $repo_type${NC}"
-    
     # Check disk space before container operations
     if ! check_docker_space; then
         cleanup_on_error "Insufficient disk space" "$temp_dir" "$container_name"
         return 1
     fi
     
-    # Create container with appropriate base image
+    # Create container with repository
     if ! create_container "$temp_dir" "$container_name"; then
         cleanup_on_error "Failed to create container" "$temp_dir" "$container_name"
-        return 1
-    fi
-    
-    # Setup container environment
-    if ! setup_container_env "$container_name" "$repo_type"; then
-        cleanup_on_error "Failed to setup container environment" "$temp_dir" "$container_name"
         return 1
     fi
     
@@ -205,6 +189,11 @@ create_container() {
     # Validate container name
     container_name=$(validate_container_name "$container_name")
     
+    # Detect project type using the project detector
+    local project_type
+    project_type=$(detect_project_type "$repo_path")
+    echo -e "${GREEN}✅ Detected project type: $project_type${NC}"
+    
     # Check for container conflict and handle it
     if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
         echo -e "\n=== Container Conflict Resolution ==="
@@ -263,8 +252,34 @@ create_container() {
         esac
     fi
     
-    echo "🐳 Creating container $container_name..."
-    docker run -d --name "$container_name" ubuntu:latest tail -f /dev/null
+    # Select base image based on project type
+    local base_image
+    case "$project_type" in
+        "python"|"django"|"flask"|"fastapi"|"data-science"|"ml-ai")
+            base_image="python:3.9-slim"
+            ;;
+        "nodejs"|"react"|"react-typescript"|"nextjs"|"typescript"|"azure-react")
+            base_image="node:20-slim"
+            ;;
+        "java"|"spring-boot")
+            base_image="openjdk:17-slim"
+            ;;
+        "cpp")
+            base_image="gcc:latest"
+            ;;
+        "rust")
+            base_image="rust:slim"
+            ;;
+        "golang"|"go")
+            base_image="golang:1.17-alpine"
+            ;;
+        *)
+            base_image="ubuntu:latest"
+            ;;
+    esac
+    
+    echo "🐳 Creating container $container_name with $base_image image..."
+    docker run -d --name "$container_name" "$base_image" tail -f /dev/null
     
     if [ $? -eq 0 ]; then
         echo "✅ Container created successfully"
@@ -275,7 +290,17 @@ create_container() {
         
         if [ $? -eq 0 ]; then
             echo "✅ Repository contents copied successfully"
-            return 0
+            
+            # Setup container environment based on project type
+            echo "🔧 Setting up container environment for $project_type project..."
+            if setup_container_env "$container_name" "$project_type"; then
+                echo "✅ Container environment setup complete"
+                return 0
+            else
+                echo "❌ Failed to setup container environment"
+                docker rm -f "$container_name" >/dev/null 2>&1
+                return 1
+            fi
         else
             echo "❌ Failed to copy repository contents"
             docker rm -f "$container_name" >/dev/null 2>&1

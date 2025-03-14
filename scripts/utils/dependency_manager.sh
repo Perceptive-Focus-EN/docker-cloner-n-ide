@@ -9,160 +9,69 @@ NC='\033[0m' # No Color
 # Function to detect project type
 detect_project_type() {
     local project_dir="$1"
+    local project_type=""
+    
+    echo -e "${YELLOW}🔍 Detecting project type...${NC}"
     
     # Check if our advanced project detector exists
     if [ -f "$SCRIPT_DIR/project_detector.sh" ]; then
+        echo -e "${GREEN}✅ Using advanced project detection${NC}"
         # Source the project detector script
         source "$SCRIPT_DIR/project_detector.sh"
-        
-        # Use the advanced analyzer
-        local project_type=$(analyze_repository "$project_dir")
+        # Run the project detector and capture the output
+        project_type=$(analyze_repository "$project_dir")
+    else
+        echo -e "${YELLOW}⚠️ Advanced project detector not found, using basic detection${NC}"
+        # Basic detection logic (fallback)
+        if [ -d "$project_dir/frontend" ] && [ -d "$project_dir/backend" ]; then
+            # Check for GPT-RAG project structure
+            project_type="gpt-rag"
+        elif [ -f "$project_dir/package.json" ]; then
+            # Check for React/Node.js project
+            if grep -q "react" "$project_dir/package.json"; then
+                if grep -q "typescript" "$project_dir/package.json"; then
+                    project_type="react-typescript"
+                else
+                    project_type="react"
+                fi
+            elif grep -q "next" "$project_dir/package.json"; then
+                project_type="nextjs"
+            else
+                project_type="nodejs"
+            fi
+        elif [ -f "$project_dir/requirements.txt" ] || [ -f "$project_dir/setup.py" ] || [ -f "$project_dir/pyproject.toml" ]; then
+            # Check for Python project
+            project_type="python"
+        elif [ -f "$project_dir/pom.xml" ] || [ -f "$project_dir/build.gradle" ]; then
+            # Check for Java project
+            project_type="java"
+        elif [ -f "$project_dir/CMakeLists.txt" ] || find "$project_dir" -name "*.cpp" | grep -q .; then
+            # Check for C++ project
+            project_type="cpp"
+        elif [ -f "$project_dir/Cargo.toml" ]; then
+            # Check for Rust project
+            project_type="rust"
+        elif [ -f "$project_dir/go.mod" ]; then
+            # Check for Go project
+            project_type="golang"
+        else
+            # Default to unknown
+            project_type="unknown"
+        fi
+    fi
+    
+    if [ -z "$project_type" ] || [ "$project_type" = "unknown" ]; then
+        echo -e "${RED}❌ Could not determine project type${NC}"
+        echo -e "${YELLOW}Supported project types:${NC}"
+        echo -e "  - python (Django, Flask, FastAPI, Data Science, ML/AI)"
+        echo -e "  - nodejs, react, react-typescript, nextjs"
+        echo -e "  - java, cpp, rust, golang"
+        echo -e "  - gpt-rag (GPT Retrieval Augmented Generation)"
+        return 1
+    else
+        echo -e "${GREEN}✅ Detected project type: ${YELLOW}$project_type${NC}"
         echo "$project_type"
         return 0
-    else
-        # Fall back to the basic detection logic
-        echo -e "${YELLOW}🔍 Detecting project type in: $project_dir${NC}"
-        
-        # First check if directory exists
-        if [ ! -d "$project_dir" ]; then
-            echo -e "${RED}❌ Project directory not found: $project_dir${NC}"
-            echo "unknown"
-            return 1
-        fi
-        
-        # Debug output
-        echo -e "${YELLOW}📂 Directory contents:${NC}"
-        ls -la "$project_dir"
-        
-        # Check for GPT-RAG or similar project structure
-        if [ -d "$project_dir/frontend" ] && [ -d "$project_dir/backend" ]; then
-            echo -e "${GREEN}✅ Detected GPT-RAG project structure${NC}"
-            
-            # Check frontend type
-            if [ -f "$project_dir/frontend/package.json" ]; then
-                if grep -q "\"@fluentui/react\":" "$project_dir/frontend/package.json" || \
-                   grep -q "\"@azure/\":" "$project_dir/frontend/package.json" || \
-                   grep -q "\"@microsoft/\":" "$project_dir/frontend/package.json"; then
-                    echo -e "${GREEN}✅ Detected Azure UI React project${NC}"
-                    echo "azure-react"
-                    return 0
-                fi
-            fi
-            
-            # If not specifically Azure UI, check for React/TypeScript
-            if [ -f "$project_dir/frontend/tsconfig.json" ]; then
-                echo -e "${GREEN}✅ Detected React TypeScript project${NC}"
-                echo "react-typescript"
-                return 0
-            fi
-        fi
-        
-        # Check for monorepo structure without backend
-        if [ -d "$project_dir/frontend" ]; then
-            echo -e "${YELLOW}📂 Detected monorepo structure, checking frontend directory...${NC}"
-            project_dir="$project_dir/frontend"
-        fi
-        
-        # Check for Next.js projects first
-        if [ -f "$project_dir/package.json" ]; then
-            if grep -q "\"next\":" "$project_dir/package.json"; then
-                echo -e "${GREEN}✅ Detected Next.js project${NC}"
-                echo "nextjs"
-                return 0
-            fi
-        fi
-        
-        # Check for TypeScript projects
-        if [ -f "$project_dir/tsconfig.json" ]; then
-            if [ -f "$project_dir/package.json" ]; then
-                if grep -q "\"@types/react\":" "$project_dir/package.json" || grep -q "\"typescript\":" "$project_dir/package.json"; then
-                    echo -e "${GREEN}✅ Detected React TypeScript project${NC}"
-                    echo "react-typescript"
-                    return 0
-                fi
-                echo -e "${GREEN}✅ Detected TypeScript project${NC}"
-                echo "typescript"
-                return 0
-            fi
-        fi
-        
-        # Check for React projects
-        if [ -f "$project_dir/package.json" ]; then
-            if grep -q "\"react\":" "$project_dir/package.json"; then
-                echo -e "${GREEN}✅ Detected React project${NC}"
-                echo "react"
-                return 0
-            fi
-        fi
-        
-        # Check for Node.js/React/Vue/Angular projects
-        if [ -f "$project_dir/package.json" ]; then
-            echo -e "${GREEN}✅ Detected Node.js project${NC}"
-            echo "nodejs"
-            return 0
-        fi
-        
-        # Check for Python projects
-        if [ -f "$project_dir/requirements.txt" ] || [ -f "$project_dir/setup.py" ] || [ -f "$project_dir/pyproject.toml" ]; then
-            echo -e "${GREEN}✅ Detected Python project${NC}"
-            echo "python"
-            return 0
-        fi
-        
-        # Check for Java projects
-        if [ -f "$project_dir/pom.xml" ] || [ -f "$project_dir/build.gradle" ]; then
-            echo -e "${GREEN}✅ Detected Java project${NC}"
-            echo "java"
-            return 0
-        fi
-        
-        # Check for C++ projects
-        if [ -f "$project_dir/CMakeLists.txt" ] || [ -f "$project_dir/Makefile" ] || find "$project_dir" -name "*.cpp" -o -name "*.hpp" | grep -q .; then
-            echo -e "${GREEN}✅ Detected C++ project${NC}"
-            echo "cpp"
-            return 0
-        fi
-        
-        # Check for Rust projects
-        if [ -f "$project_dir/Cargo.toml" ]; then
-            echo -e "${GREEN}✅ Detected Rust project${NC}"
-            echo "rust"
-            return 0
-        fi
-        
-        # Check for Go projects
-        if [ -f "$project_dir/go.mod" ]; then
-            echo -e "${GREEN}✅ Detected Go project${NC}"
-            echo "golang"
-            return 0
-        fi
-        
-        # Check for frontend projects without package.json
-        if [ -f "$project_dir/index.html" ] || [ -f "$project_dir/src/index.html" ] || [ -f "$project_dir/public/index.html" ]; then
-            echo -e "${GREEN}✅ Detected frontend project${NC}"
-            echo "frontend"
-            return 0
-        fi
-        
-        # If we get here, we couldn't detect the type
-        echo -e "${RED}❌ Could not detect project type${NC}"
-        echo -e "${YELLOW}💡 Project structure:${NC}"
-        find "$project_dir" -type f -name "package.json" -o -name "tsconfig.json" -o -name "requirements.txt"
-        echo -e "${YELLOW}💡 Supported project types:${NC}"
-        echo "  - Azure UI React (package.json with @fluentui/react)"
-        echo "  - Next.js (package.json with next dependency)"
-        echo "  - React TypeScript (tsconfig.json + package.json with @types/react)"
-        echo "  - React (package.json with react dependency)"
-        echo "  - TypeScript (tsconfig.json + package.json)"
-        echo "  - Node.js (package.json)"
-        echo "  - Python (requirements.txt, setup.py, pyproject.toml)"
-        echo "  - Java (pom.xml, build.gradle)"
-        echo "  - C++ (CMakeLists.txt, Makefile, *.cpp)"
-        echo "  - Rust (Cargo.toml)"
-        echo "  - Go (go.mod)"
-        echo "  - Frontend (index.html)"
-        echo "unknown"
-        return 1
     fi
 }
 
