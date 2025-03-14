@@ -1,441 +1,718 @@
 #!/bin/bash
 
-###########################################
-# Project Detector Script
-# A robust project type detection system inspired by GitHub Linguist
+# Project Detector
 # This script analyzes a repository to determine:
-# 1. Primary language(s)
-# 2. Framework(s) in use
-# 3. Project structure and architecture
-###########################################
+# 1. Primary languages in use
+# 2. Frameworks in use
+# 3. Project architecture
+# 4. Cloud provider affinity
+# Based on GitHub Linguist approach with additional heuristics
 
-# Color codes for output
+# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
+YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# Function to count files matching a pattern in a directory
+# Function to count files matching a pattern
 count_files() {
     local dir="$1"
     local pattern="$2"
-    local count=0
-    
-    # Handle multiple patterns separated by spaces
-    for p in $pattern; do
-        # Use find to count files matching the pattern
-        local c=$(find "$dir" -type f -name "$p" 2>/dev/null | wc -l)
-        count=$((count + c))
-    done
-    
-    echo "$count"
+    find "$dir" -type f -name "$pattern" 2>/dev/null | wc -l
 }
 
-# Function to check for dependencies in package.json
-check_npm_deps() {
-    local dir="$1"
-    local pattern="$2"
-    local count=0
-    
-    # Find all package.json files
-    local package_files=$(find "$dir" -name "package.json" 2>/dev/null)
-    
-    for file in $package_files; do
-        # Check if any of the patterns exist in the package.json
-        for p in $pattern; do
-            if grep -q "\"$p\":" "$file" 2>/dev/null; then
-                count=$((count + 1))
-            fi
-        done
-    done
-    
-    echo "$count"
-}
-
-# Function to check for dependencies in Python requirements
-check_python_deps() {
-    local dir="$1"
-    local pattern="$2"
-    local count=0
-    
-    # Find all requirements files
-    local req_files=$(find "$dir" -name "requirements.txt" -o -name "Pipfile" -o -name "pyproject.toml" 2>/dev/null)
-    
-    for file in $req_files; do
-        # Check if any of the patterns exist in the requirements file
-        for p in $pattern; do
-            if grep -q "$p" "$file" 2>/dev/null; then
-                count=$((count + 1))
-            fi
-        done
-    done
-    
-    echo "$count"
-}
-
-# Function to check for Java/Maven dependencies
-check_java_deps() {
-    local dir="$1"
-    local pattern="$2"
-    local count=0
-    
-    # Find all pom.xml files
-    local pom_files=$(find "$dir" -name "pom.xml" 2>/dev/null)
-    
-    for file in $pom_files; do
-        # Check if any of the patterns exist in the pom.xml
-        for p in $pattern; do
-            if grep -q "$p" "$file" 2>/dev/null; then
-                count=$((count + 1))
-            fi
-        done
-    done
-    
-    echo "$count"
-}
-
-# Function to detect primary languages in a repository
-detect_languages() {
-    local repo_dir="$1"
-    local results=""
-    local total_files=0
-    
-    echo -e "${YELLOW}Analyzing languages in $repo_dir...${NC}"
-    
-    # Count total files (excluding hidden directories)
-    total_files=$(find "$repo_dir" -type f -not -path "*/\.*" | wc -l)
-    
-    # Check each language
-    check_language "javascript" "*.js" "$repo_dir" "$total_files" "$results"
-    check_language "typescript" "*.ts *.tsx tsconfig.json" "$repo_dir" "$total_files" "$results"
-    check_language "python" "*.py requirements.txt setup.py Pipfile pyproject.toml" "$repo_dir" "$total_files" "$results"
-    check_language "java" "*.java pom.xml build.gradle" "$repo_dir" "$total_files" "$results"
-    check_language "csharp" "*.cs *.csproj" "$repo_dir" "$total_files" "$results"
-    check_language "cpp" "*.cpp *.hpp *.h CMakeLists.txt" "$repo_dir" "$total_files" "$results"
-    check_language "go" "*.go go.mod go.sum" "$repo_dir" "$total_files" "$results"
-    check_language "rust" "*.rs Cargo.toml" "$repo_dir" "$total_files" "$results"
-    check_language "php" "*.php composer.json" "$repo_dir" "$total_files" "$results"
-    check_language "ruby" "*.rb Gemfile" "$repo_dir" "$total_files" "$results"
-    check_language "swift" "*.swift Package.swift" "$repo_dir" "$total_files" "$results"
-    check_language "kotlin" "*.kt build.gradle.kts" "$repo_dir" "$total_files" "$results"
-    check_language "scala" "*.scala build.sbt" "$repo_dir" "$total_files" "$results"
-    check_language "shell" "*.sh" "$repo_dir" "$total_files" "$results"
-    check_language "html" "*.html" "$repo_dir" "$total_files" "$results"
-    check_language "css" "*.css" "$repo_dir" "$total_files" "$results"
-    check_language "sass" "*.scss *.sass" "$repo_dir" "$total_files" "$results"
-    
-    # Sort results by count (descending)
-    local sorted=$(echo "$results" | sort -t ':' -k2 -nr)
-    
-    # Print results
-    echo -e "${BLUE}Language breakdown:${NC}"
-    echo "$sorted" | while IFS=':' read -r lang count percentage; do
-        if [ -n "$lang" ]; then
-            echo -e "  ${GREEN}$lang${NC}: $count files ($percentage%)"
-        fi
-    done
-    
-    # Return primary language (highest count)
-    local primary_lang=$(echo "$sorted" | head -n 1 | cut -d ':' -f1)
-    if [ -n "$primary_lang" ]; then
-        echo "$primary_lang"
-    else
-        echo "unknown"
-    fi
-}
-
-# Helper function to check a language and add to results
+# Function to check if a language is present
 check_language() {
-    local lang="$1"
-    local pattern="$2"
-    local repo_dir="$3"
-    local total_files="$4"
-    local results="$5"
-    
-    local count=$(count_files "$repo_dir" "$pattern")
-    
+    local dir="$1"
+    local lang="$2"
+    local pattern="$3"
+    local count=$(count_files "$dir" "$pattern")
     if [ "$count" -gt 0 ]; then
-        local percentage=$((count * 100 / total_files))
-        if [ "$percentage" -gt 5 ]; then  # Only include if > 5% of files
-            echo "$lang:$count:$percentage"
-        fi
+        echo "$lang:$count"
     fi
 }
 
-# Function to detect frameworks in a repository
-detect_frameworks() {
-    local repo_dir="$1"
-    local primary_lang="$2"
-    local results=""
-    
-    echo -e "${YELLOW}Analyzing frameworks in $repo_dir...${NC}"
-    
-    # Check each framework
-    check_framework "react" "react react-dom" "$repo_dir" "$primary_lang" "$results"
-    check_framework "angular" "@angular/core" "$repo_dir" "$primary_lang" "$results"
-    check_framework "vue" "vue vue-router" "$repo_dir" "$primary_lang" "$results"
-    check_framework "next" "next next-server" "$repo_dir" "$primary_lang" "$results"
-    check_framework "nuxt" "nuxt nuxt-edge" "$repo_dir" "$primary_lang" "$results"
-    check_framework "express" "express" "$repo_dir" "$primary_lang" "$results"
-    check_framework "django" "django" "$repo_dir" "$primary_lang" "$results"
-    check_framework "flask" "flask" "$repo_dir" "$primary_lang" "$results"
-    check_framework "fastapi" "fastapi" "$repo_dir" "$primary_lang" "$results"
-    check_framework "spring" "org.springframework" "$repo_dir" "$primary_lang" "$results"
-    check_framework "dotnet" "Microsoft.AspNetCore" "$repo_dir" "$primary_lang" "$results"
-    check_framework "laravel" "laravel/framework" "$repo_dir" "$primary_lang" "$results"
-    check_framework "rails" "rails" "$repo_dir" "$primary_lang" "$results"
-    check_framework "flutter" "flutter" "$repo_dir" "$primary_lang" "$results"
-    check_framework "electron" "electron" "$repo_dir" "$primary_lang" "$results"
-    check_framework "tensorflow" "tensorflow" "$repo_dir" "$primary_lang" "$results"
-    check_framework "pytorch" "torch" "$repo_dir" "$primary_lang" "$results"
-    check_framework "azure-sdk" "@azure/ azure-" "$repo_dir" "$primary_lang" "$results"
-    check_framework "aws-sdk" "aws-sdk" "$repo_dir" "$primary_lang" "$results"
-    check_framework "gcp-sdk" "@google-cloud/" "$repo_dir" "$primary_lang" "$results"
-    
-    # Sort results by count (descending)
-    local sorted=$(echo "$results" | sort -t ':' -k2 -nr)
-    
-    # Print results
-    echo -e "${BLUE}Framework detection:${NC}"
-    echo "$sorted" | while IFS=':' read -r framework count; do
-        if [ -n "$framework" ]; then
-            echo -e "  ${GREEN}$framework${NC}: detected ($count matches)"
-        fi
-    done
-    
-    # Return primary framework (highest count)
-    local primary_framework=$(echo "$sorted" | head -n 1 | cut -d ':' -f1)
-    if [ -n "$primary_framework" ]; then
-        echo "$primary_framework"
-    else
-        echo "none"
-    fi
-}
-
-# Helper function to check a framework and add to results
+# Function to check if a framework is present
 check_framework() {
-    local framework="$1"
-    local pattern="$2"
-    local repo_dir="$3"
-    local primary_lang="$4"
-    local results="$5"
-    
-    local count=0
-    
-    # Check based on primary language
-    case "$primary_lang" in
-        javascript|typescript)
-            count=$(check_npm_deps "$repo_dir" "$pattern")
-            ;;
-        python)
-            count=$(check_python_deps "$repo_dir" "$pattern")
-            ;;
-        java|kotlin|scala)
-            count=$(check_java_deps "$repo_dir" "$pattern")
-            ;;
-        *)
-            # For other languages, just check for files
-            count=$(count_files "$repo_dir" "$pattern")
-            ;;
-    esac
-    
+    local dir="$1"
+    local framework="$2"
+    local pattern="$3"
+    local count=$(count_files "$dir" "$pattern")
     if [ "$count" -gt 0 ]; then
         echo "$framework:$count"
     fi
 }
 
-# Function to detect project architecture
-detect_architecture() {
-    local repo_dir="$1"
-    local results=""
-    
-    echo -e "${YELLOW}Analyzing project architecture in $repo_dir...${NC}"
-    
-    # Check for special directories that indicate project structure
-    if [ -d "$repo_dir/frontend" ] && [ -d "$repo_dir/backend" ]; then
-        results="$results\nfullstack:10"
-    fi
-    
-    if [ -d "$repo_dir/api" ] && [ -d "$repo_dir/client" ]; then
-        results="$results\napi-client:8"
-    fi
-    
-    # Check each architecture pattern
-    check_arch "monorepo" "lerna.json nx.json turbo.json pnpm-workspace.yaml" "$repo_dir" "$results"
-    check_arch "microservices" "docker-compose.yml kubernetes/ k8s/" "$repo_dir" "$results"
-    check_arch "serverless" "serverless.yml netlify.toml vercel.json" "$repo_dir" "$results"
-    check_arch "spa" "index.html public/index.html src/index.html" "$repo_dir" "$results"
-    check_arch "pwa" "manifest.json service-worker.js" "$repo_dir" "$results"
-    check_arch "mobile" "AndroidManifest.xml Info.plist" "$repo_dir" "$results"
-    check_arch "desktop" "electron main.js" "$repo_dir" "$results"
-    check_arch "library" "package.json setup.py" "$repo_dir" "$results"
-    check_arch "api" "swagger.json openapi.yaml" "$repo_dir" "$results"
-    check_arch "ml" "model/ models/ train.py" "$repo_dir" "$results"
-    check_arch "rag" "embeddings/ vector/ retrieval.py" "$repo_dir" "$results"
-    check_arch "azure-functions" "function.json host.json" "$repo_dir" "$results"
-    check_arch "azure-webapp" "web.config .deployment" "$repo_dir" "$results"
-    
-    # Sort results by count (descending)
-    local sorted=$(echo -e "$results" | sort -t ':' -k2 -nr)
-    
-    # Print results
-    echo -e "${BLUE}Architecture detection:${NC}"
-    echo "$sorted" | while IFS=':' read -r arch count; do
-        if [ -n "$arch" ]; then
-            echo -e "  ${GREEN}$arch${NC}: detected ($count matches)"
-        fi
-    done
-    
-    # Return primary architecture (highest count)
-    local primary_arch=$(echo "$sorted" | head -n 1 | cut -d ':' -f1)
-    if [ -n "$primary_arch" ]; then
-        echo "$primary_arch"
-    else
-        echo "standard"
-    fi
-}
-
-# Helper function to check architecture and add to results
+# Function to check if an architecture pattern is present
 check_arch() {
-    local arch="$1"
-    local pattern="$2"
-    local repo_dir="$3"
-    local results="$4"
-    
-    local count=$(count_files "$repo_dir" "$pattern")
-    
+    local dir="$1"
+    local arch="$2"
+    local pattern="$3"
+    local count=$(count_files "$dir" "$pattern")
     if [ "$count" -gt 0 ]; then
         echo "$arch:$count"
     fi
 }
 
-# Function to detect cloud provider affinity
-detect_cloud_affinity() {
-    local repo_dir="$1"
+# Function to check dependencies in package.json
+check_npm_deps() {
+    local dir="$1"
+    local package_file="$dir/package.json"
+    local deps=""
+    
+    if [ -f "$package_file" ]; then
+        # Check for React
+        if grep -q '"react"' "$package_file"; then
+            deps="$deps react"
+        fi
+        # Check for Angular
+        if grep -q '"@angular/core"' "$package_file"; then
+            deps="$deps angular"
+        fi
+        # Check for Vue
+        if grep -q '"vue"' "$package_file"; then
+            deps="$deps vue"
+        fi
+        # Check for Next.js
+        if grep -q '"next"' "$package_file"; then
+            deps="$deps nextjs"
+        fi
+        # Check for Express
+        if grep -q '"express"' "$package_file"; then
+            deps="$deps express"
+        fi
+        # Check for NestJS
+        if grep -q '"@nestjs/core"' "$package_file"; then
+            deps="$deps nestjs"
+        fi
+    fi
+    echo "$deps"
+}
+
+# Function to check Python dependencies
+check_python_deps() {
+    local dir="$1"
+    local deps=""
+    
+    # Check requirements.txt
+    if [ -f "$dir/requirements.txt" ]; then
+        # Check for Django
+        if grep -q "django" "$dir/requirements.txt"; then
+            deps="$deps django"
+        fi
+        # Check for Flask
+        if grep -q "flask" "$dir/requirements.txt"; then
+            deps="$deps flask"
+        fi
+        # Check for FastAPI
+        if grep -q "fastapi" "$dir/requirements.txt"; then
+            deps="$deps fastapi"
+        fi
+        # Check for Pandas
+        if grep -q "pandas" "$dir/requirements.txt"; then
+            deps="$deps pandas"
+        fi
+        # Check for TensorFlow
+        if grep -q "tensorflow" "$dir/requirements.txt"; then
+            deps="$deps tensorflow"
+        fi
+        # Check for PyTorch
+        if grep -q "torch" "$dir/requirements.txt"; then
+            deps="$deps pytorch"
+        fi
+    fi
+    
+    # Check pyproject.toml
+    if [ -f "$dir/pyproject.toml" ]; then
+        # Check for Django
+        if grep -q "django" "$dir/pyproject.toml"; then
+            deps="$deps django"
+        fi
+        # Check for Flask
+        if grep -q "flask" "$dir/pyproject.toml"; then
+            deps="$deps flask"
+        fi
+        # Check for FastAPI
+        if grep -q "fastapi" "$dir/pyproject.toml"; then
+            deps="$deps fastapi"
+        fi
+        # Check for Pandas
+        if grep -q "pandas" "$dir/pyproject.toml"; then
+            deps="$deps pandas"
+        fi
+        # Check for TensorFlow
+        if grep -q "tensorflow" "$dir/pyproject.toml"; then
+            deps="$deps tensorflow"
+        fi
+        # Check for PyTorch
+        if grep -q "torch" "$dir/pyproject.toml"; then
+            deps="$deps pytorch"
+        fi
+    fi
+    
+    # Check setup.py
+    if [ -f "$dir/setup.py" ]; then
+        # Check for Django
+        if grep -q "django" "$dir/setup.py"; then
+            deps="$deps django"
+        fi
+        # Check for Flask
+        if grep -q "flask" "$dir/setup.py"; then
+            deps="$deps flask"
+        fi
+        # Check for FastAPI
+        if grep -q "fastapi" "$dir/setup.py"; then
+            deps="$deps fastapi"
+        fi
+        # Check for Pandas
+        if grep -q "pandas" "$dir/setup.py"; then
+            deps="$deps pandas"
+        fi
+        # Check for TensorFlow
+        if grep -q "tensorflow" "$dir/setup.py"; then
+            deps="$deps tensorflow"
+        fi
+        # Check for PyTorch
+        if grep -q "torch" "$dir/setup.py"; then
+            deps="$deps pytorch"
+        fi
+    fi
+    
+    echo "$deps"
+}
+
+# Function to detect languages in the repository
+detect_languages() {
+    local dir="$1"
     local results=""
     
-    echo -e "${YELLOW}Analyzing cloud provider affinity...${NC}"
-    
-    # Check for Azure-specific files and patterns
-    local azure_count=0
-    azure_count=$((azure_count + $(count_files "$repo_dir" "azure*.json azure*.yaml .azure")))
-    azure_count=$((azure_count + $(check_npm_deps "$repo_dir" "@azure/ azure-")))
-    azure_count=$((azure_count + $(check_python_deps "$repo_dir" "azure-")))
-    
-    if [ "$azure_count" -gt 0 ]; then
-        results="$results\nazure:$azure_count"
+    # JavaScript
+    local js_count=$(count_files "$dir" "*.js")
+    if [ "$js_count" -gt 0 ]; then
+        results="$results JavaScript:$js_count"
     fi
     
-    # Check for AWS-specific files and patterns
-    local aws_count=0
-    aws_count=$((aws_count + $(count_files "$repo_dir" "aws*.json aws*.yaml .aws")))
-    aws_count=$((aws_count + $(check_npm_deps "$repo_dir" "aws-sdk")))
-    aws_count=$((aws_count + $(check_python_deps "$repo_dir" "boto3 aws-")))
-    
-    if [ "$aws_count" -gt 0 ]; then
-        results="$results\naws:$aws_count"
+    # TypeScript
+    local ts_count=$(count_files "$dir" "*.ts")
+    if [ "$ts_count" -gt 0 ]; then
+        results="$results TypeScript:$ts_count"
     fi
     
-    # Check for GCP-specific files and patterns
-    local gcp_count=0
-    gcp_count=$((gcp_count + $(count_files "$repo_dir" "gcp*.json gcp*.yaml .gcp app.yaml")))
-    gcp_count=$((gcp_count + $(check_npm_deps "$repo_dir" "@google-cloud/")))
-    gcp_count=$((gcp_count + $(check_python_deps "$repo_dir" "google-cloud-")))
-    
-    if [ "$gcp_count" -gt 0 ]; then
-        results="$results\ngcp:$gcp_count"
+    # Python
+    local py_count=$(count_files "$dir" "*.py")
+    if [ "$py_count" -gt 0 ]; then
+        results="$results Python:$py_count"
     fi
     
-    # Sort results by count (descending)
-    local sorted=$(echo -e "$results" | sort -t ':' -k2 -nr)
+    # Java
+    local java_count=$(count_files "$dir" "*.java")
+    if [ "$java_count" -gt 0 ]; then
+        results="$results Java:$java_count"
+    fi
     
-    # Print results
-    echo -e "${BLUE}Cloud provider affinity:${NC}"
-    echo "$sorted" | while IFS=':' read -r provider count; do
-        if [ -n "$provider" ]; then
-            echo -e "  ${GREEN}$provider${NC}: detected ($count matches)"
+    # C#
+    local csharp_count=$(count_files "$dir" "*.cs")
+    if [ "$csharp_count" -gt 0 ]; then
+        results="$results C#:$csharp_count"
+    fi
+    
+    # C++
+    local cpp_count=$(count_files "$dir" "*.cpp")
+    if [ "$cpp_count" -gt 0 ]; then
+        results="$results C++:$cpp_count"
+    fi
+    
+    # Go
+    local go_count=$(count_files "$dir" "*.go")
+    if [ "$go_count" -gt 0 ]; then
+        results="$results Go:$go_count"
+    fi
+    
+    # Rust
+    local rust_count=$(count_files "$dir" "*.rs")
+    if [ "$rust_count" -gt 0 ]; then
+        results="$results Rust:$rust_count"
+    fi
+    
+    # Ruby
+    local ruby_count=$(count_files "$dir" "*.rb")
+    if [ "$ruby_count" -gt 0 ]; then
+        results="$results Ruby:$ruby_count"
+    fi
+    
+    # PHP
+    local php_count=$(count_files "$dir" "*.php")
+    if [ "$php_count" -gt 0 ]; then
+        results="$results PHP:$php_count"
+    fi
+    
+    # HTML
+    local html_count=$(count_files "$dir" "*.html")
+    if [ "$html_count" -gt 0 ]; then
+        results="$results HTML:$html_count"
+    fi
+    
+    # CSS
+    local css_count=$(count_files "$dir" "*.css")
+    if [ "$css_count" -gt 0 ]; then
+        results="$results CSS:$css_count"
+    fi
+    
+    echo "$results"
+}
+
+# Function to detect frameworks in the repository
+detect_frameworks() {
+    local dir="$1"
+    local results=""
+    
+    # React
+    local react_count=$(count_files "$dir" "*.jsx")
+    if [ "$react_count" -gt 0 ]; then
+        results="$results React:$react_count"
+    fi
+    
+    # React with TypeScript
+    local reactts_count=$(count_files "$dir" "*.tsx")
+    if [ "$reactts_count" -gt 0 ]; then
+        results="$results ReactTS:$reactts_count"
+    fi
+    
+    # Angular
+    local angular_count=$(count_files "$dir" "*.component.ts")
+    if [ "$angular_count" -gt 0 ]; then
+        results="$results Angular:$angular_count"
+    fi
+    
+    # Vue
+    local vue_count=$(count_files "$dir" "*.vue")
+    if [ "$vue_count" -gt 0 ]; then
+        results="$results Vue:$vue_count"
+    fi
+    
+    # Django
+    local django_count=$(count_files "$dir" "*/settings.py")
+    if [ "$django_count" -gt 0 ]; then
+        results="$results Django:$django_count"
+    fi
+    
+    # Flask
+    local flask_count=$(count_files "$dir" "*app.py")
+    if [ "$flask_count" -gt 0 ]; then
+        results="$results Flask:$flask_count"
+    fi
+    
+    # FastAPI
+    local fastapi_count=$(count_files "$dir" "*main.py")
+    if [ "$fastapi_count" -eq 0 ]; then
+        # Also check for FastAPI imports
+        if grep -r "from fastapi import" "$dir" 2>/dev/null | grep -q .; then
+            results="$results FastAPI:1"
         fi
-    done
-    
-    # Return primary cloud provider (highest count)
-    local primary_provider=$(echo "$sorted" | head -n 1 | cut -d ':' -f1)
-    if [ -n "$primary_provider" ]; then
-        echo "$primary_provider"
     else
-        echo "none"
+        results="$results FastAPI:$fastapi_count"
     fi
+    
+    # Spring Boot
+    local springboot_count=$(count_files "$dir" "*Application.java")
+    if [ "$springboot_count" -gt 0 ]; then
+        results="$results SpringBoot:$springboot_count"
+    fi
+    
+    # Express.js
+    if grep -r "express()" "$dir" 2>/dev/null | grep -q .; then
+        results="$results Express:1"
+    fi
+    
+    # NestJS
+    if grep -r "@Module" "$dir" 2>/dev/null | grep -q .; then
+        results="$results NestJS:1"
+    fi
+    
+    # Check package.json for JS frameworks
+    local npm_deps=$(check_npm_deps "$dir")
+    if [ ! -z "$npm_deps" ]; then
+        for dep in $npm_deps; do
+            results="$results $dep:1"
+        done
+    fi
+    
+    # Check Python dependencies
+    local python_deps=$(check_python_deps "$dir")
+    if [ ! -z "$python_deps" ]; then
+        for dep in $python_deps; do
+            results="$results $dep:1"
+        done
+    fi
+    
+    echo "$results"
+}
+
+# Function to detect architecture patterns
+detect_architecture() {
+    local dir="$1"
+    local results=""
+    
+    # Monorepo
+    if [ -d "$dir/packages" ] || [ -d "$dir/apps" ]; then
+        results="$results Monorepo:1"
+    fi
+    
+    # Microservices
+    if [ -d "$dir/services" ] || [ -d "$dir/microservices" ]; then
+        results="$results Microservices:1"
+    fi
+    
+    # Serverless
+    local serverless=$(check_arch "$dir" "Serverless" "serverless.yml")
+    if [ ! -z "$serverless" ]; then
+        results="$results $serverless"
+    fi
+    
+    # Check for AWS SAM
+    local sam=$(check_arch "$dir" "Serverless" "template.yaml")
+    if [ ! -z "$sam" ]; then
+        results="$results $sam"
+    fi
+    
+    # Check for Azure Functions
+    if [ -d "$dir/functions" ] || grep -r "azure-functions" "$dir" 2>/dev/null | grep -q .; then
+        results="$results AzureFunctions:1"
+    fi
+    
+    # Check for Google Cloud Functions
+    if grep -r "functions.https.onCall" "$dir" 2>/dev/null | grep -q .; then
+        results="$results GCPFunctions:1"
+    fi
+    
+    echo "$results"
+}
+
+# Function to detect cloud provider affinity
+detect_cloud_affinity() {
+    local dir="$1"
+    local results=""
+    
+    # Azure
+    local azure_count=0
+    if grep -r "azure" "$dir" 2>/dev/null | grep -q .; then
+        azure_count=$((azure_count + 1))
+    fi
+    if grep -r "Microsoft.Azure" "$dir" 2>/dev/null | grep -q .; then
+        azure_count=$((azure_count + 1))
+    fi
+    if [ -f "$dir/azure-pipelines.yml" ]; then
+        azure_count=$((azure_count + 1))
+    fi
+    if [ "$azure_count" -gt 0 ]; then
+        results="$results Azure:$azure_count"
+    fi
+    
+    # AWS
+    local aws_count=0
+    if grep -r "aws-sdk" "$dir" 2>/dev/null | grep -q .; then
+        aws_count=$((aws_count + 1))
+    fi
+    if grep -r "amazonaws" "$dir" 2>/dev/null | grep -q .; then
+        aws_count=$((aws_count + 1))
+    fi
+    if [ -f "$dir/cloudformation.yml" ] || [ -f "$dir/cloudformation.yaml" ]; then
+        aws_count=$((aws_count + 1))
+    fi
+    if [ "$aws_count" -gt 0 ]; then
+        results="$results AWS:$aws_count"
+    fi
+    
+    # GCP
+    local gcp_count=0
+    if grep -r "google-cloud" "$dir" 2>/dev/null | grep -q .; then
+        gcp_count=$((gcp_count + 1))
+    fi
+    if grep -r "gcloud" "$dir" 2>/dev/null | grep -q .; then
+        gcp_count=$((gcp_count + 1))
+    fi
+    if [ -f "$dir/app.yaml" ]; then
+        gcp_count=$((gcp_count + 1))
+    fi
+    if [ "$gcp_count" -gt 0 ]; then
+        results="$results GCP:$gcp_count"
+    fi
+    
+    echo "$results"
+}
+
+# Function to detect Python project type in more detail
+detect_python_project_type() {
+    local dir="$1"
+    local results=""
+    
+    # Check for Django
+    if [ -f "$dir/manage.py" ] && grep -q "django" "$dir/manage.py" 2>/dev/null; then
+        results="django"
+    # Check for Flask
+    elif grep -r "from flask import" "$dir" 2>/dev/null | grep -q .; then
+        results="flask"
+    # Check for FastAPI
+    elif grep -r "from fastapi import" "$dir" 2>/dev/null | grep -q .; then
+        results="fastapi"
+    # Check for Data Science
+    elif grep -r "import pandas" "$dir" 2>/dev/null | grep -q . || \
+         grep -r "import numpy" "$dir" 2>/dev/null | grep -q . || \
+         grep -r "import matplotlib" "$dir" 2>/dev/null | grep -q .; then
+        results="data-science"
+    # Check for ML/AI
+    elif grep -r "import tensorflow" "$dir" 2>/dev/null | grep -q . || \
+         grep -r "import torch" "$dir" 2>/dev/null | grep -q . || \
+         grep -r "from sklearn" "$dir" 2>/dev/null | grep -q .; then
+        results="ml-ai"
+    # Check for CLI tool
+    elif [ -f "$dir/setup.py" ] && grep -q "console_scripts" "$dir/setup.py" 2>/dev/null; then
+        results="cli-tool"
+    # Check for API
+    elif grep -r "def get" "$dir" 2>/dev/null | grep -q . && \
+         grep -r "def post" "$dir" 2>/dev/null | grep -q .; then
+        results="api"
+    # Default to generic
+    else
+        results="generic"
+    fi
+    
+    echo "$results"
+}
+
+# Function to detect dependency management approach
+detect_dependency_management() {
+    local dir="$1"
+    local results=""
+    
+    # Python
+    if [ -f "$dir/requirements.txt" ]; then
+        results="$results pip-requirements"
+    fi
+    if [ -f "$dir/Pipfile" ]; then
+        results="$results pipenv"
+    fi
+    if [ -f "$dir/pyproject.toml" ]; then
+        if grep -q "poetry" "$dir/pyproject.toml" 2>/dev/null; then
+            results="$results poetry"
+        elif grep -q "pdm" "$dir/pyproject.toml" 2>/dev/null; then
+            results="$results pdm"
+        else
+            results="$results pyproject"
+        fi
+    fi
+    if [ -f "$dir/setup.py" ]; then
+        results="$results setuptools"
+    fi
+    if [ -f "$dir/environment.yml" ]; then
+        results="$results conda"
+    fi
+    
+    # JavaScript/TypeScript
+    if [ -f "$dir/package.json" ]; then
+        if [ -f "$dir/yarn.lock" ]; then
+            results="$results yarn"
+        elif [ -f "$dir/pnpm-lock.yaml" ]; then
+            results="$results pnpm"
+        else
+            results="$results npm"
+        fi
+    fi
+    
+    # Java
+    if [ -f "$dir/pom.xml" ]; then
+        results="$results maven"
+    fi
+    if [ -f "$dir/build.gradle" ]; then
+        results="$results gradle"
+    fi
+    
+    # .NET
+    if [ -f "$dir/*.csproj" ] || [ -f "$dir/*.sln" ]; then
+        results="$results nuget"
+    fi
+    
+    # Go
+    if [ -f "$dir/go.mod" ]; then
+        results="$results go-modules"
+    fi
+    
+    # Rust
+    if [ -f "$dir/Cargo.toml" ]; then
+        results="$results cargo"
+    fi
+    
+    echo "$results"
 }
 
 # Main function to analyze a repository
 analyze_repository() {
-    local repo_dir="$1"
+    local dir="$1"
     
-    if [ ! -d "$repo_dir" ]; then
-        echo -e "${RED}Error: Directory $repo_dir does not exist${NC}"
+    if [ ! -d "$dir" ]; then
+        echo -e "${RED}Directory $dir does not exist${NC}"
         return 1
     fi
     
-    echo -e "${YELLOW}=== Project Analysis for $repo_dir ===${NC}"
+    echo -e "${BLUE}Analyzing project at ${YELLOW}$dir${NC}"
     
-    # Detect primary language
-    local primary_lang=$(detect_languages "$repo_dir")
+    # Detect languages
+    echo -e "${BLUE}Detecting languages...${NC}"
+    local languages=$(detect_languages "$dir")
+    
+    # Calculate total files
+    local total_files=0
+    for lang_count in $languages; do
+        local count=$(echo "$lang_count" | cut -d':' -f2)
+        if [[ "$count" =~ ^[0-9]+$ ]]; then
+            total_files=$((total_files + count))
+        fi
+    done
+    
+    # Display languages with percentages
+    if [ ! -z "$languages" ]; then
+        echo -e "${GREEN}Languages detected:${NC}"
+        for lang_count in $languages; do
+            local lang=$(echo "$lang_count" | cut -d':' -f1)
+            local count=$(echo "$lang_count" | cut -d':' -f2)
+            local percentage=0
+            if [ "$total_files" -gt 0 ] && [[ "$count" =~ ^[0-9]+$ ]]; then
+                percentage=$(( (count * 100) / total_files ))
+            fi
+            echo -e "  ${YELLOW}$lang${NC}: $count files ($percentage%)"
+        done
+    else
+        echo -e "${YELLOW}No languages detected${NC}"
+    fi
     
     # Detect frameworks
-    local primary_framework=$(detect_frameworks "$repo_dir" "$primary_lang")
+    echo -e "${BLUE}Detecting frameworks...${NC}"
+    local frameworks=$(detect_frameworks "$dir")
+    if [ ! -z "$frameworks" ]; then
+        echo -e "${GREEN}Frameworks detected:${NC}"
+        for framework_count in $frameworks; do
+            local framework=$(echo "$framework_count" | cut -d':' -f1)
+            local count=$(echo "$framework_count" | cut -d':' -f2)
+            if [[ "$count" =~ ^[0-9]+$ ]]; then
+                echo -e "  ${YELLOW}$framework${NC} ($count matches)"
+            fi
+        done
+    else
+        echo -e "${YELLOW}No frameworks detected${NC}"
+    fi
     
     # Detect architecture
-    local primary_arch=$(detect_architecture "$repo_dir")
+    echo -e "${BLUE}Detecting architecture...${NC}"
+    local architecture=$(detect_architecture "$dir")
+    if [ ! -z "$architecture" ]; then
+        echo -e "${GREEN}Architecture patterns detected:${NC}"
+        for arch_count in $architecture; do
+            local arch=$(echo "$arch_count" | cut -d':' -f1)
+            echo -e "  ${YELLOW}$arch${NC}"
+        done
+    else
+        echo -e "${YELLOW}No specific architecture pattern detected${NC}"
+    fi
     
-    # Detect cloud provider affinity
-    local primary_cloud=$(detect_cloud_affinity "$repo_dir")
+    # Detect cloud affinity
+    echo -e "${BLUE}Detecting cloud provider affinity...${NC}"
+    local cloud=$(detect_cloud_affinity "$dir")
+    if [ ! -z "$cloud" ]; then
+        echo -e "${GREEN}Cloud provider affinity detected:${NC}"
+        for cloud_count in $cloud; do
+            local provider=$(echo "$cloud_count" | cut -d':' -f1)
+            local count=$(echo "$cloud_count" | cut -d':' -f2)
+            echo -e "  ${YELLOW}$provider${NC} (confidence: $count)"
+        done
+    else
+        echo -e "${YELLOW}No specific cloud provider affinity detected${NC}"
+    fi
     
-    # Determine project type based on all detections
-    local project_type=""
+    # Detect dependency management
+    echo -e "${BLUE}Detecting dependency management...${NC}"
+    local dep_mgmt=$(detect_dependency_management "$dir")
+    if [ ! -z "$dep_mgmt" ]; then
+        echo -e "${GREEN}Dependency management detected:${NC}"
+        for dm in $dep_mgmt; do
+            echo -e "  ${YELLOW}$dm${NC}"
+        done
+    else
+        echo -e "${YELLOW}No specific dependency management detected${NC}"
+    fi
     
-    # First check for specialized project types
-    if [[ "$primary_arch" == "fullstack" || "$primary_arch" == "api-client" ]]; then
-        if [[ "$primary_framework" == "react" || "$primary_framework" == "angular" || "$primary_framework" == "vue" ]]; then
-            if [[ "$primary_cloud" == "azure" ]]; then
-                project_type="azure-fullstack"
-            else
-                project_type="fullstack-$primary_framework"
-            fi
-        elif [[ "$primary_lang" == "typescript" || "$primary_lang" == "javascript" ]]; then
-            project_type="js-fullstack"
-        else
-            project_type="$primary_lang-fullstack"
+    # Determine primary language
+    local primary_lang=""
+    local max_count=0
+    for lang_count in $languages; do
+        local lang=$(echo "$lang_count" | cut -d':' -f1)
+        local count=$(echo "$lang_count" | cut -d':' -f2)
+        if [[ "$count" =~ ^[0-9]+$ ]] && [ "$count" -gt "$max_count" ]; then
+            max_count=$count
+            primary_lang=$lang
         fi
-    elif [[ "$primary_arch" == "rag" ]]; then
-        if [[ "$primary_cloud" == "azure" ]]; then
-            project_type="azure-rag"
+    done
+    
+    # Determine project type
+    local project_type=""
+    if [ "$primary_lang" = "JavaScript" ] || [ "$primary_lang" = "TypeScript" ]; then
+        if echo "$frameworks" | grep -q "React"; then
+            project_type="react"
+        elif echo "$frameworks" | grep -q "Angular"; then
+            project_type="angular"
+        elif echo "$frameworks" | grep -q "Vue"; then
+            project_type="vue"
+        elif echo "$frameworks" | grep -q "Express"; then
+            project_type="express"
+        elif echo "$frameworks" | grep -q "NestJS"; then
+            project_type="nestjs"
+        elif echo "$frameworks" | grep -q "NextJS"; then
+            project_type="nextjs"
         else
-            project_type="$primary_lang-rag"
+            project_type="node"
+        fi
+    elif [ "$primary_lang" = "Python" ]; then
+        project_type=$(detect_python_project_type "$dir")
+    elif [ "$primary_lang" = "Java" ]; then
+        if echo "$frameworks" | grep -q "SpringBoot"; then
+            project_type="spring-boot"
+        else
+            project_type="java"
+        fi
+    elif [ "$primary_lang" = "C#" ]; then
+        project_type="dotnet"
+    elif [ "$primary_lang" = "Go" ]; then
+        project_type="go"
+    elif [ "$primary_lang" = "Rust" ]; then
+        project_type="rust"
+    elif [ "$primary_lang" = "Ruby" ]; then
+        if [ -f "$dir/config/routes.rb" ]; then
+            project_type="rails"
+        else
+            project_type="ruby"
+        fi
+    elif [ "$primary_lang" = "PHP" ]; then
+        if [ -f "$dir/artisan" ]; then
+            project_type="laravel"
+        else
+            project_type="php"
         fi
     else
-        # Default to language-framework combination
-        if [[ "$primary_framework" != "none" ]]; then
-            project_type="$primary_lang-$primary_framework"
-        else
-            project_type="$primary_lang"
-        fi
+        project_type="unknown"
     fi
     
-    # Special case for Azure React projects
-    if [[ "$primary_framework" == "react" && "$primary_cloud" == "azure" ]]; then
-        project_type="azure-react"
-    fi
+    echo -e "${PURPLE}Project Summary:${NC}"
+    echo -e "  ${CYAN}Primary Language:${NC} ${YELLOW}$primary_lang${NC}"
+    echo -e "  ${CYAN}Project Type:${NC} ${YELLOW}$project_type${NC}"
     
-    echo -e "\n${BLUE}=== Project Analysis Summary ===${NC}"
-    echo -e "Primary Language: ${GREEN}$primary_lang${NC}"
-    echo -e "Primary Framework: ${GREEN}$primary_framework${NC}"
-    echo -e "Architecture: ${GREEN}$primary_arch${NC}"
-    echo -e "Cloud Affinity: ${GREEN}$primary_cloud${NC}"
-    echo -e "Project Type: ${GREEN}$project_type${NC}"
-    
-    # Return the project type
+    # Return the project type for use by other scripts
     echo "$project_type"
 }
+
+# Export the main function
+export -f analyze_repository
 
 # If script is run directly, analyze the specified directory
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
@@ -447,6 +724,3 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     
     analyze_repository "$1"
 fi
-
-# Export the main function
-export -f analyze_repository 

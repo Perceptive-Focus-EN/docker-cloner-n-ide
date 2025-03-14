@@ -198,10 +198,51 @@ setup_container_env() {
             # Python-specific setup - pip is already installed in python images
             docker exec "$container_name" bash -c "
                 cd /app && \
-                if [ -f requirements.txt ]; then
+                apt-get update && \
+                apt-get install -y python3-venv python3-pip && \
+                python3 -m venv /app/venv && \
+                . /app/venv/bin/activate && \
+                
+                # Check for different dependency files and install them
+                if [ -f 'requirements.txt' ]; then
+                    echo '📦 Installing dependencies from requirements.txt...' && \
                     pip install -r requirements.txt
-                fi
-            "
+                elif [ -f 'pyproject.toml' ]; then
+                    echo '📦 Installing project with pip...' && \
+                    pip install -e .
+                elif [ -f 'setup.py' ]; then
+                    echo '📦 Installing project with pip...' && \
+                    pip install -e .
+                fi && \
+                
+                # Check for specific Python project types and install additional tools
+                if grep -q 'django' requirements.txt 2>/dev/null || grep -q 'django' pyproject.toml 2>/dev/null || [ -f 'manage.py' ]; then
+                    echo '🌐 Django project detected, installing development tools...' && \
+                    pip install django-debug-toolbar
+                elif grep -q 'flask' requirements.txt 2>/dev/null || grep -q 'flask' pyproject.toml 2>/dev/null; then
+                    echo '🌐 Flask project detected, installing development tools...' && \
+                    pip install flask-debugtoolbar
+                elif grep -q 'fastapi' requirements.txt 2>/dev/null || grep -q 'fastapi' pyproject.toml 2>/dev/null; then
+                    echo '🌐 FastAPI project detected, installing development tools...' && \
+                    pip install fastapi-debug-toolbar
+                elif grep -q 'pandas\|numpy\|matplotlib' requirements.txt 2>/dev/null || grep -q 'pandas\|numpy\|matplotlib' pyproject.toml 2>/dev/null; then
+                    echo '📊 Data Science project detected, installing additional tools...' && \
+                    pip install jupyterlab
+                elif grep -q 'tensorflow\|torch\|sklearn' requirements.txt 2>/dev/null || grep -q 'tensorflow\|torch\|sklearn' pyproject.toml 2>/dev/null; then
+                    echo '🧠 ML/AI project detected, installing additional tools...' && \
+                    pip install jupyterlab tensorboard
+                fi && \
+                
+                # Create activation script for convenience
+                echo '#!/bin/bash' > /app/activate.sh && \
+                echo 'source /app/venv/bin/activate' >> /app/activate.sh && \
+                chmod +x /app/activate.sh && \
+                
+                echo '✅ Python environment setup complete!'
+            " || {
+                echo -e "${RED}❌ Failed to setup Python environment${NC}"
+                return 1
+            }
             ;;
         "nodejs"|"react"|"react-typescript"|"nextjs"|"typescript"|"azure-react")
             # Node.js-specific setup - node and npm are already installed in node images
