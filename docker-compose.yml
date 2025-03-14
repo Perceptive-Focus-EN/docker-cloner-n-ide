@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  # Attacker environment container
+  attacker:
+    image: ubuntu:22.04
+    container_name: mobile-attacker
+    volumes:
+      - ./shared:/shared
+      - ./attacker/tools:/attack/tools
+      - ./attacker/data:/attack/data
+      - ./attacker/scripts:/attack/scripts
+      - /dev:/dev  # Mount all devices
+    privileged: true  # Needed for ADB and device access
+    network_mode: "host"  # Access to host network for attack simulations
+    environment:
+      - DISPLAY=${DISPLAY}  # For GUI tools
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+    command: >
+      bash -c "apt-get update && 
+      apt-get install -y adb libimobiledevice-utils ideviceinstaller && 
+      chmod +x /attack/scripts/common/detect-device.sh /attack/scripts/android/extract-messages.sh /attack/scripts/ios/extract-ios.sh /attack/scripts/extract-all.sh 2>/dev/null || true && 
+      tail -f /dev/null"
+
+  # Defender environment container
+  defender:
+    build:
+      context: ./defender
+      dockerfile: Dockerfile
+    container_name: mobile-defender
+    volumes:
+      - ./shared:/shared
+      - ./defender/monitor:/defense/monitor
+      - ./defender/logs:/defense/logs
+      - ./defender/rules:/defense/rules
+      - ./defender/scripts:/defense/scripts
+      - /dev:/dev  # Mount all devices
+    privileged: true  # Needed for security monitoring
+    network_mode: "host"  # Access to host network for defense
+    environment:
+      - DISPLAY=${DISPLAY}  # For GUI tools
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+    entrypoint: ["/bin/bash", "-c"]
+    command: >
+      "apt-get update && 
+      apt-get install -y adb libimobiledevice-utils ideviceinstaller && 
+      chmod +x /defense/scripts/common/monitor-all.sh /defense/scripts/android/monitor-android.sh /defense/scripts/ios/monitor-ios.sh 2>/dev/null || true && 
+      tail -f /dev/null"
+
+  # Optional: Android Emulator container
+  # This will work on x86_64/amd64 systems but not ARM
+  android-emulator:
+    image: budtmo/docker-android:emulator-11.0
+    container_name: android-emulator
+    platform: linux/amd64  # Force amd64 as emulator doesn't work on ARM
+    privileged: true
+    ports:
+      - "5554:5554"  # Emulator console
+      - "5556:5556"  # ADB server
+      - "6080:6080"  # noVNC server
+    environment:
+      - DEVICE=Samsung Galaxy S10
+      - EMULATOR_ARGS=-no-snapshot-save -no-window -noaudio -no-boot-anim -memory 2048
+    profiles:
+      - emulator  # Use docker-compose --profile emulator up to start this
+    restart: unless-stopped
+
+  # Optional: Network traffic monitoring container (works on any platform)
+  traffic-monitor:
+    image: nicolaka/netshoot
+    container_name: traffic-monitor
+    network_mode: "host"
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    command: /bin/sh -c "tcpdump -i any -w /shared/network_capture.pcap"
+    volumes:
+      - ./shared:/shared
+    restart: unless-stopped
+
+networks:
+  default:
+    name: mobile-security-network 
