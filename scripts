@@ -1,7 +1,0 @@
-<script>start("/Users/perceptivefocus/loinc-demo-app/scripts/");</script>
-<script>onHasParentDirectory();</script>
-<script>addRow("core","core",1,96,"96 B",1741922949,"3/13/25, 8:29:09 PM");</script>
-<script>addRow("docker","docker",1,96,"96 B",1741924848,"3/13/25, 9:00:48 PM");</script>
-<script>addRow("handlers","handlers",1,128,"128 B",1741922919,"3/13/25, 8:28:39 PM");</script>
-<script>addRow("utils","utils",1,128,"128 B",1741932030,"3/13/25, 11:00:30 PM");</script>
-<script>addRow("docker_helper.sh","docker_helper.sh",0,7060,"6.9 kB",1741927014,"3/13/25, 9:36:54 PM");</script>
