@@ -194,6 +194,96 @@ setup_container_env() {
     
     # Setup based on project type
     case "$project_type" in
+        "nodejs"|"react"|"react-typescript"|"nextjs"|"typescript"|"azure-react")
+            # Node.js-specific setup - node and npm are already installed in node images
+            docker exec "$container_name" bash -c "
+                cd /app && \
+                
+                # Check for monorepo structure with frontend/backend
+                if [ -d 'frontend' ] && [ -f 'frontend/package.json' ]; then
+                    echo '📦 Setting up frontend...' && \
+                    cd frontend && npm install
+                    
+                    # Check if this is a Vite project
+                    if [ -f 'vite.config.ts' ] || [ -f 'vite.config.js' ]; then
+                        echo '🛠️ Detected Vite project, setting up development environment...'
+                        # Install Vite globally for convenience
+                        npm install -g vite
+                    fi
+                    
+                    # Check if we need to build the project
+                    if grep -q '\"build\"' package.json; then
+                        echo '🏗️ Building frontend project...'
+                        npm run build
+                    fi
+                elif [ -f 'package.json' ]; then
+                    echo '📦 Installing dependencies...' && \
+                    npm install
+                    
+                    # Check if this is a Vite project
+                    if [ -f 'vite.config.ts' ] || [ -f 'vite.config.js' ]; then
+                        echo '🛠️ Detected Vite project, setting up development environment...'
+                        # Install Vite globally for convenience
+                        npm install -g vite
+                    fi
+                    
+                    # Check if we need to build the project
+                    if grep -q '\"build\"' package.json; then
+                        echo '🏗️ Building project...'
+                        npm run build
+                    fi
+                fi
+                
+                # Check for backend in monorepo structure
+                if [ -d '/app/backend' ]; then
+                    echo '📦 Setting up backend...' && \
+                    cd /app/backend
+                    
+                    # Check for Python backend
+                    if [ -f 'requirements.txt' ]; then
+                        echo '🐍 Python backend detected, setting up environment...' && \
+                        apt-get update && \
+                        apt-get install -y python3-venv python3-pip && \
+                        python3 -m venv venv && \
+                        . venv/bin/activate && \
+                        pip install -r requirements.txt
+                        
+                        # Create activation script for convenience
+                        echo '#!/bin/bash' > activate.sh && \
+                        echo 'source venv/bin/activate' >> activate.sh && \
+                        chmod +x activate.sh
+                    # Check for Node.js backend
+                    elif [ -f 'package.json' ]; then
+                        echo '📦 Node.js backend detected, installing dependencies...' && \
+                        npm install
+                    fi
+                fi
+                
+                # Create convenience scripts for monorepo
+                if [ -d '/app/frontend' ] && [ -d '/app/backend' ]; then
+                    echo '📝 Creating convenience scripts...'
+                    
+                    # Frontend start script
+                    echo '#!/bin/bash' > /app/start_frontend.sh && \
+                    echo 'cd /app/frontend && npm start' >> /app/start_frontend.sh && \
+                    chmod +x /app/start_frontend.sh
+                    
+                    # Backend start script - handle both Python and Node.js
+                    echo '#!/bin/bash' > /app/start_backend.sh && \
+                    if [ -f '/app/backend/requirements.txt' ]; then
+                        echo 'cd /app/backend && source venv/bin/activate && python app.py' >> /app/start_backend.sh
+                    elif [ -f '/app/backend/package.json' ]; then
+                        echo 'cd /app/backend && npm start' >> /app/start_backend.sh
+                    fi
+                    chmod +x /app/start_backend.sh
+                fi
+                
+                echo '✅ Node.js/React environment setup complete!'
+            " || {
+                echo -e "${RED}❌ Failed to setup Node.js/React environment${NC}"
+                return 1
+            }
+            ;;
         "python"|"django"|"flask"|"fastapi"|"data-science"|"ml-ai")
             # Python-specific setup - pip is already installed in python images
             docker exec "$container_name" bash -c "
@@ -244,17 +334,6 @@ setup_container_env() {
                 return 1
             }
             ;;
-        "nodejs"|"react"|"react-typescript"|"nextjs"|"typescript"|"azure-react")
-            # Node.js-specific setup - node and npm are already installed in node images
-            docker exec "$container_name" bash -c "
-                cd /app && \
-                if [ -d 'frontend' ] && [ -f 'frontend/package.json' ]; then
-                    cd frontend && npm install
-                elif [ -f 'package.json' ]; then
-                    npm install
-                fi
-            "
-            ;;
         "java"|"spring-boot")
             # Java-specific setup - Java is already installed in openjdk images
             docker exec "$container_name" bash -c "
@@ -299,8 +378,32 @@ setup_container_env() {
         *)
             # For unknown project types, try to detect common patterns
             docker exec "$container_name" bash -c "
+                # Check for monorepo structure
+                if [ -d '/app/frontend' ] && [ -d '/app/backend' ]; then
+                    echo '📦 Detected monorepo structure, setting up environment...'
+                    
+                    # Setup frontend
+                    if [ -f '/app/frontend/package.json' ]; then
+                        echo '📦 Setting up frontend...'
+                        apt-get update && \
+                        apt-get install -y nodejs npm && \
+                        cd /app/frontend && npm install
+                    fi
+                    
+                    # Setup backend
+                    if [ -f '/app/backend/requirements.txt' ]; then
+                        echo '📦 Setting up Python backend...'
+                        apt-get install -y python3-venv python3-pip && \
+                        cd /app/backend && \
+                        python3 -m venv venv && \
+                        . venv/bin/activate && \
+                        pip install -r requirements.txt
+                    elif [ -f '/app/backend/package.json' ]; then
+                        echo '📦 Setting up Node.js backend...'
+                        cd /app/backend && npm install
+                    fi
                 # Check for package.json (Node.js)
-                if [ -f '/app/package.json' ]; then
+                elif [ -f '/app/package.json' ]; then
                     apt-get update && \
                     apt-get install -y nodejs npm && \
                     cd /app && npm install

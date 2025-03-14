@@ -9,70 +9,117 @@ NC='\033[0m' # No Color
 # Function to detect project type
 detect_project_type() {
     local project_dir="$1"
-    local project_type=""
+    local project_type="unknown"
     
-    echo -e "${YELLOW}🔍 Detecting project type...${NC}"
-    
-    # Check if our advanced project detector exists
+    # Check if the advanced project detector exists
     if [ -f "$SCRIPT_DIR/project_detector.sh" ]; then
-        echo -e "${GREEN}✅ Using advanced project detection${NC}"
-        # Source the project detector script
+        # Source the advanced project detector
         source "$SCRIPT_DIR/project_detector.sh"
-        # Run the project detector and capture the output
-        project_type=$(analyze_repository "$project_dir")
+        
+        # Use the advanced project detector to analyze the repository
+        local analysis_output
+        analysis_output=$(analyze_repository "$project_dir")
+        
+        # Extract the project type from the analysis output
+        project_type=$(echo "$analysis_output" | grep "Primary language:" | awk '{print $3}' | tr '[:upper:]' '[:lower:]')
+        
+        # If the project type is still unknown, try to determine it from the frameworks
+        if [ "$project_type" = "unknown" ] || [ -z "$project_type" ]; then
+            project_type=$(echo "$analysis_output" | grep "Frameworks detected:" -A 5 | grep -o -E '(React|Angular|Vue|Django|Flask|Spring|Express|Vite)' | head -1 | tr '[:upper:]' '[:lower:]')
+        fi
     else
-        echo -e "${YELLOW}⚠️ Advanced project detector not found, using basic detection${NC}"
-        # Basic detection logic (fallback)
-        if [ -d "$project_dir/frontend" ] && [ -d "$project_dir/backend" ]; then
-            # Check for GPT-RAG project structure
-            project_type="gpt-rag"
-        elif [ -f "$project_dir/package.json" ]; then
-            # Check for React/Node.js project
-            if grep -q "react" "$project_dir/package.json"; then
-                if grep -q "typescript" "$project_dir/package.json"; then
+        # Print debug message to stderr instead of stdout
+        echo "⚠️ Advanced project detector not found, using basic detection" >&2
+        
+        # Basic detection logic
+        
+        # Check for specific repositories by name pattern
+        if [ -d "$project_dir/.git" ]; then
+            local remote_url
+            remote_url=$(cd "$project_dir" && git config --get remote.origin.url 2>/dev/null)
+            
+            if [[ "$remote_url" == *"gpt-rag-frontend"* ]]; then
+                # This is the GPT-RAG frontend repo, which is a TypeScript React project with Vite
+                if [ -f "$project_dir/frontend/package.json" ] && grep -q "\"vite\"" "$project_dir/frontend/package.json" 2>/dev/null; then
                     project_type="react-typescript"
+                    # Print debug message to stderr instead of stdout
+                    echo "📦 Detected GPT-RAG frontend repository (React TypeScript with Vite)" >&2
+                    echo "$project_type"
+                    return 0
+                fi
+            fi
+        fi
+        
+        # Check for Vite configuration (common in modern React/TypeScript projects)
+        if [ -f "$project_dir/vite.config.ts" ] || [ -f "$project_dir/vite.config.js" ] || 
+           [ -f "$project_dir/frontend/vite.config.ts" ] || [ -f "$project_dir/frontend/vite.config.js" ]; then
+            # Check if it's a TypeScript project
+            if [ -f "$project_dir/tsconfig.json" ] || [ -f "$project_dir/frontend/tsconfig.json" ]; then
+                project_type="react-typescript"
+                # Print debug message to stderr instead of stdout
+                echo "📦 Detected React TypeScript project with Vite" >&2
+            else
+                project_type="react"
+                # Print debug message to stderr instead of stdout
+                echo "📦 Detected React project with Vite" >&2
+            fi
+            echo "$project_type"
+            return 0
+        fi
+        
+        # Check for monorepo structure with frontend/backend
+        if [ -d "$project_dir/frontend" ] && [ -d "$project_dir/backend" ]; then
+            # Check frontend technology
+            if [ -f "$project_dir/frontend/package.json" ]; then
+                if grep -q "\"typescript\"" "$project_dir/frontend/package.json" 2>/dev/null || 
+                   [ -f "$project_dir/frontend/tsconfig.json" ]; then
+                    project_type="react-typescript"
+                    # Print debug message to stderr instead of stdout
+                    echo "📦 Detected monorepo with React TypeScript frontend" >&2
                 else
                     project_type="react"
+                    # Print debug message to stderr instead of stdout
+                    echo "📦 Detected monorepo with React frontend" >&2
                 fi
-            elif grep -q "next" "$project_dir/package.json"; then
-                project_type="nextjs"
-            else
-                project_type="nodejs"
+                echo "$project_type"
+                return 0
             fi
-        elif [ -f "$project_dir/requirements.txt" ] || [ -f "$project_dir/setup.py" ] || [ -f "$project_dir/pyproject.toml" ]; then
-            # Check for Python project
+        fi
+        
+        # Check for Azure UI React project
+        if [ -f "$project_dir/package.json" ] && grep -q "\"@fluentui/react\"" "$project_dir/package.json" 2>/dev/null; then
+            project_type="azure-react"
+        # Check for React TypeScript project
+        elif [ -f "$project_dir/tsconfig.json" ] && [ -f "$project_dir/package.json" ] && grep -q "\"react\"" "$project_dir/package.json" 2>/dev/null; then
+            project_type="react-typescript"
+        # Check for Next.js project
+        elif [ -f "$project_dir/package.json" ] && grep -q "\"next\"" "$project_dir/package.json" 2>/dev/null; then
+            project_type="nextjs"
+        # Check for Node.js project
+        elif [ -f "$project_dir/package.json" ]; then
+            project_type="nodejs"
+        # Check for Python project
+        elif [ -f "$project_dir/requirements.txt" ] || [ -f "$project_dir/pyproject.toml" ] || [ -f "$project_dir/setup.py" ]; then
             project_type="python"
+        # Check for Java project
         elif [ -f "$project_dir/pom.xml" ] || [ -f "$project_dir/build.gradle" ]; then
-            # Check for Java project
             project_type="java"
-        elif [ -f "$project_dir/CMakeLists.txt" ] || find "$project_dir" -name "*.cpp" | grep -q .; then
-            # Check for C++ project
+        # Check for C++ project
+        elif [ -f "$project_dir/CMakeLists.txt" ] || find "$project_dir" -name "*.cpp" -o -name "*.hpp" | grep -q .; then
             project_type="cpp"
+        # Check for Rust project
         elif [ -f "$project_dir/Cargo.toml" ]; then
-            # Check for Rust project
             project_type="rust"
-        elif [ -f "$project_dir/go.mod" ]; then
-            # Check for Go project
+        # Check for Go project
+        elif [ -f "$project_dir/go.mod" ] || find "$project_dir" -name "*.go" | grep -q .; then
             project_type="golang"
-        else
-            # Default to unknown
-            project_type="unknown"
+        # Check for frontend project (fallback)
+        elif find "$project_dir" -name "*.html" -o -name "*.css" -o -name "*.js" | grep -q .; then
+            project_type="frontend"
         fi
     fi
     
-    if [ -z "$project_type" ] || [ "$project_type" = "unknown" ]; then
-        echo -e "${RED}❌ Could not determine project type${NC}"
-        echo -e "${YELLOW}Supported project types:${NC}"
-        echo -e "  - python (Django, Flask, FastAPI, Data Science, ML/AI)"
-        echo -e "  - nodejs, react, react-typescript, nextjs"
-        echo -e "  - java, cpp, rust, golang"
-        echo -e "  - gpt-rag (GPT Retrieval Augmented Generation)"
-        return 1
-    else
-        echo -e "${GREEN}✅ Detected project type: ${YELLOW}$project_type${NC}"
-        echo "$project_type"
-        return 0
-    fi
+    echo "$project_type"
 }
 
 # Function to install dependencies based on project type

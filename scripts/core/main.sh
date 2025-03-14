@@ -255,11 +255,12 @@ create_container() {
     # Select base image based on project type
     local base_image
     case "$project_type" in
+        "react"|"react-typescript"|"nextjs"|"typescript"|"nodejs"|"azure-react"|"frontend")
+            # Use Node.js image for all JavaScript/TypeScript projects
+            base_image="node:20-slim"
+            ;;
         "python"|"django"|"flask"|"fastapi"|"data-science"|"ml-ai")
             base_image="python:3.9-slim"
-            ;;
-        "nodejs"|"react"|"react-typescript"|"nextjs"|"typescript"|"azure-react")
-            base_image="node:20-slim"
             ;;
         "java"|"spring-boot")
             base_image="openjdk:17-slim"
@@ -274,6 +275,8 @@ create_container() {
             base_image="golang:1.17-alpine"
             ;;
         *)
+            # For unknown project types or monorepo structures, use Ubuntu
+            # This gives us flexibility to install multiple runtimes
             base_image="ubuntu:latest"
             ;;
     esac

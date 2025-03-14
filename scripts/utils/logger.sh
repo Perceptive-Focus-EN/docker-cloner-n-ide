@@ -11,7 +11,7 @@ MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# Log levels
+# Log levels as integers
 LOG_LEVEL_DEBUG=0
 LOG_LEVEL_INFO=1
 LOG_LEVEL_WARNING=2
@@ -19,7 +19,14 @@ LOG_LEVEL_ERROR=3
 LOG_LEVEL_SUCCESS=4
 
 # Default log level (can be overridden by setting LOG_LEVEL environment variable)
-LOG_LEVEL=${LOG_LEVEL:-$LOG_LEVEL_INFO}
+# Make sure LOG_LEVEL is an integer
+if [[ -n "$LOG_LEVEL" && "$LOG_LEVEL" =~ ^[0-9]+$ ]]; then
+    # Use the environment variable if it's set and is a number
+    :
+else
+    # Otherwise, default to INFO level
+    LOG_LEVEL=$LOG_LEVEL_INFO
+fi
 
 # Function to log debug messages
 log_debug() {
